@@ -246,6 +246,30 @@ export function resumeUpload(uploadId) {
  sendData(get(active_account), null, 'upload_update_status', { uploadId, status: FileUploadRecordStatus.UPLOADING }, true, (req, res) => {});
 }
 
+export function loadUploadData(uploadId) {
+ let acc = get(active_account);
+ sendData(acc, null, 'upload_get', {id: uploadId,}, true, (req, res) => {
+   const { record, uploadData } = res.data;
+   const upload = makeFileUpload({
+    ...uploadData,
+    file: null,
+    record,
+    chunksSent: [],
+    uploadInterval: null,
+    acc
+   })
+   console.warn('BBB upload', upload);
+
+   // perform checks
+   if (upload.role === FileUploadRole.SENDER && [FileUploadRecordStatus.BEGUN, FileUploadRecordStatus.UPLOADING].includes(record.status)) {
+    upload.status = FileUploadRecordStatus.ERROR;
+   }
+
+   fileUploadStore.set(uploadId, upload);
+  }
+ );
+}
+
 export function deinitComms(acc) {
  sendData(acc, null, 'user_unsubscribe', { event: 'new_message' });
  sendData(acc, null, 'user_unsubscribe', { event: 'seen_message' });
@@ -273,30 +297,6 @@ export function deinitData(acc) {
  data.conversationsArray.set([]);
  data.selectedConversation.set(null);
  acc.module_data[identifier] = null;
-}
-
-export function loadUploadData(uploadId) {
- let acc = get(active_account);
- sendData(acc, null, 'upload_get', {id: uploadId,}, true, (req, res) => {
-   const { record, uploadData } = res.data;
-   const upload = makeFileUpload({
-    ...uploadData,
-    file: null,
-    record,
-    chunksSent: [],
-    uploadInterval: null,
-    acc
-   })
-   console.warn('BBB upload', upload);
-
-   // perform checks
-   if (upload.role === FileUploadRole.SENDER && [FileUploadRecordStatus.BEGUN, FileUploadRecordStatus.UPLOADING].includes(record.status)) {
-    upload.status = FileUploadRecordStatus.ERROR;
-   }
-
-   fileUploadStore.set(uploadId, upload);
-  }
- );
 }
 
 export function listMessages(acc, address) {
@@ -660,11 +660,13 @@ export function processMessage(message) {
  let html;
  if (message.format === 'html') {
   html = saneHtml(message.message);
+
+  // wrap consecutive Attachment elements in an AttachmentsWrapper element
+  wrapConsecutiveElements(html, 'Attachment', 'AttachmentsWrapper');
  } else {
   html = saneHtml(preprocess_incoming_plaintext_message_text(message.message));
  }
  //html = group_downloads(html);
- wrapConsecutiveElements(html, 'Attachment', 'AttachmentsWrapper');
 
  return {
   format: 'html',
